@@ -302,6 +302,26 @@ your plan because it IS Claude Code.
   Anthropic's enforcement stance, which they reserve the right to
   change without notice.
 
+### When this can genuinely be useful
+
+- **Development and prototyping.** Building an agent integration, an
+  openclaw extension, or a new Discord bot and want to iterate without
+  wiring up API-key billing on day one. Validate the shape of the thing
+  first, migrate to API keys before it goes anywhere real.
+- **Unblocking in-flight work.** Something that was working on your Pro
+  or Max plan broke when the April 2026 rebilling kicked in, and you
+  need continuity for a few hours or days while you obtain API keys /
+  expense approval / Console access. Use this to keep the lights on,
+  then move.
+- **Personal productivity.** Your own assistant bot, on your own
+  machine, on your own subscription, helping only you. No users, no
+  service, no scale. Same caveats as everything else on this page, but
+  this is the least-concerning profile.
+- **Learning how tool-use bridging works.** The parser + structured-
+  output pattern (`<tool_call>` → Anthropic `tool_use` blocks) is a
+  portable technique. Even if you never ship this exact proxy, the idea
+  is reusable against other LLMs or billing setups.
+
 ### Guidance
 
 - Running this as a business, serving other users, or at any scale:
