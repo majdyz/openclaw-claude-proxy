@@ -131,6 +131,30 @@ Prerequisites:
 - `@anthropic-ai/claude-code` (the `claude` CLI) installed globally, with
   `claude login` already completed as the user that will run the proxy.
 
+### One-line setup (recommended)
+
+```bash
+git clone https://github.com/majdyz/openclaw-claude-proxy.git
+cd openclaw-claude-proxy
+sudo ./install.sh
+```
+
+`install.sh` will:
+
+- verify `node`, `claude`, and a valid `claude login` session exist
+- write `/etc/systemd/system/claude-proxy.service` wired to the right
+  binaries and to the user that did `claude login`
+- enable + start the service, then curl `/health` to confirm
+- back up your existing `~/.openclaw/openclaw.json` and merge
+  `models.providers.anthropic.baseUrl` into it
+- restart the `openclaw` service so it picks up the new baseUrl
+
+Options: `--port <n>` (default 18790), `--no-service` (skip systemd),
+`--no-openclaw` (skip the config patch), `--openclaw-config <path>`,
+`--service-user <user>` (defaults to the user invoking `sudo`).
+
+### Manual install
+
 ```bash
 git clone https://github.com/majdyz/openclaw-claude-proxy.git
 cd openclaw-claude-proxy
