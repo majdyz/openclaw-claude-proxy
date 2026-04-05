@@ -249,3 +249,67 @@ Issues and PRs welcome. Most obvious next steps:
 - Images/documents passthrough via `claude --input-format stream-json`
 - Disconnect-aware cleanup (kill child `claude` when the HTTP client gives up)
 - Tighter `<tool_call>` parser that recovers from minor formatting drift
+
+## Legal & compliance — read before using
+
+**This proxy is an unofficial workaround, not something Anthropic has
+sanctioned. Read their policy and decide for yourself — this README is
+not legal advice.**
+
+Anthropic's Claude Code authentication policy
+([code.claude.com/docs/en/legal-and-compliance](https://code.claude.com/docs/en/legal-and-compliance)):
+
+> OAuth authentication is intended exclusively for purchasers of Claude
+> Free, Pro, Max, Team, and Enterprise subscription plans and is designed
+> to support **ordinary use of Claude Code and other native Anthropic
+> applications**.
+>
+> Developers building products or services that interact with Claude's
+> capabilities … should use API key authentication through Claude Console
+> or a supported cloud provider. Anthropic does not permit third-party
+> developers to offer Claude.ai login or to route requests through Free,
+> Pro, or Max plan credentials on behalf of their users.
+>
+> Advertised usage limits for Pro and Max plans assume **ordinary,
+> individual usage of Claude Code and the Agent SDK**.
+>
+> Anthropic reserves the right to take measures to enforce these
+> restrictions and may do so without prior notice.
+
+On **April 4, 2026** Anthropic extended enforcement to third-party
+harnesses like OpenClaw — that traffic now bills against a new "extra
+usage" tier rather than Pro/Max plan limits (coverage:
+[TechCrunch](https://techcrunch.com/2026/04/04/anthropic-says-claude-code-subscribers-will-need-to-pay-extra-for-openclaw-support/),
+[VentureBeat](https://venturebeat.com/technology/anthropic-cracks-down-on-unauthorized-claude-usage-by-third-party-harnesses),
+[The Register](https://www.theregister.com/2026/02/20/anthropic_clarifies_ban_third_party_claude_access)).
+This proxy prevents that rebilling from applying to OpenClaw traffic by
+routing LLM calls through the real `claude` CLI, which is billed against
+your plan because it IS Claude Code.
+
+### What this proxy does / does not do
+
+- **Does not** extract the OAuth token from
+  `~/.claude/.credentials.json` and send it to `api.anthropic.com` from
+  a non-official HTTP client. The token is read only by the real
+  `claude` binary, as designed.
+- **Does** invoke `claude -p` from a service so a different application
+  (OpenClaw) can use the result. Running `claude -p` as a subprocess of
+  another tool is not what Anthropic means by "ordinary, individual
+  usage of Claude Code."
+- **Can be blocked** at any time by tighter fingerprinting on
+  Anthropic's side (parent-process heuristics, invocation-rate limits,
+  etc.). The useful lifetime of this approach depends entirely on
+  Anthropic's enforcement stance, which they reserve the right to
+  change without notice.
+
+### Guidance
+
+- Running this as a business, serving other users, or at any scale:
+  **don't**. Use API-key billing via [Claude Console](https://platform.claude.com/)
+  — that is unambiguously permitted.
+- Solo user running your own assistant bot on your own subscription for
+  your own convenience: this repo is published as a technical artifact
+  demonstrating the bridging pattern. You accept the risk that it may
+  stop working or be contrary to Anthropic's evolving interpretation.
+
+If in doubt, switch to API-key billing or ask Anthropic sales.
