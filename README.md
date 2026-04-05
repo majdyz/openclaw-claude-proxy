@@ -7,10 +7,12 @@ third-party agent framework) make Anthropic `/v1/messages` calls using your
 getting the *"Third-party apps now draw from your extra usage, not your plan
 limits"* rejection.
 
-It's ~250 lines of Node (built-ins only, no SDK). It does not touch
+It's ~350 lines of Node (built-ins only, no SDK). It does not touch
 `api.anthropic.com` itself: it shells out to the real `claude` CLI, which makes
 the upstream call as the official Claude Code client, and then marshals the
-response back into Anthropic-compatible SSE for the caller.
+response back into Anthropic-compatible SSE for the caller — including
+**bridging tool calls** so the caller's tools (`exec`, web search, Discord
+MCP, Linear, Sentry, memory, etc.) keep working.
 
 ## Why this exists
 
@@ -39,25 +41,37 @@ terms of service, and don't automate at scale.
 
 ```
 your agent (OpenClaw, etc.)
-   │  POST http://127.0.0.1:18790/v1/messages   (Anthropic API shape, streaming)
+   │  POST http://127.0.0.1:18790/v1/messages  (Anthropic API shape, tools + streaming)
    ▼
 claude-proxy.js
-   │  flattens `system` + `messages` + `tools` description into one user-text
-   │  block, wraps prior tool_use / tool_result in 4-backtick code fences
-   │  spawns `claude -p --input-format stream-json --output-format stream-json
-   │    --include-partial-messages --allowed-tools "" --max-turns 1`
-   │  writes the flattened prompt to claude's stdin as one user stream-json event
-   │  emits SSE keepalive pings while claude starts up (~5-30s on big prompts)
+   │  • flattens system prompt + tool specs + message history into one
+   │    user-text prompt; prior tool_use / tool_result are rendered as
+   │    descriptive prose (so claude has context but won't mimic format)
+   │  • tells claude: "reply with either a final answer OR a <tool_call>
+   │    block naming one of the available tools"
+   │  • spawns `claude -p --output-format json --max-turns 1 --allowed-tools ""`
+   │    (single-shot, claude's own tools disabled)
+   │  • writes the prompt to claude's stdin, emits SSE keepalives while waiting
    ▼
 claude CLI  (@anthropic-ai/claude-code — the real binary)
-   │  authenticates with ~/.claude/.credentials.json (your `claude login` session)
-   │  sends the request with the CLI's own User-Agent + baked-in system prompt
+   │  • authenticates with ~/.claude/.credentials.json
+   │  • sends the request with the CLI's own User-Agent + baked-in system prompt
    ▼
 api.anthropic.com  ──> allowed as official Claude Code traffic
-   │  streams stream_event JSONL back through the CLI
+   │  returns the model's answer
    ▼
-claude-proxy.js  (unwraps stream_event → Anthropic SSE → caller)
+claude-proxy.js
+   │  parses claude's text for <tool_call> blocks
+   │    • found → emits Anthropic tool_use content blocks + stop_reason=tool_use
+   │    • none  → emits text content block + stop_reason=end_turn
+   ▼
+your agent
+   │  executes the tool (your code, not ours) and POSTs back with the
+   │  tool_result in history — we replay, claude decides whether to call
+   │  another tool or write the final answer
 ```
+
+Each HTTP request is a single turn. The loop (model → tool_use → tool → tool_result → model) is driven by the caller, exactly like Anthropic's real API — which means openclaw keeps its own tool-execution loop, memory writes, streaming cadence, and Discord delivery logic.
 
 ### Why the `system` prompt is inlined into the user message
 
@@ -78,26 +92,36 @@ to emit any such fences itself, to prevent it from imitating the pattern.
 
 ## Limitations
 
-- **No tool passthrough.** The proxy disables tools in the CLI
-  (`--allowed-tools ""`). The caller's `tools` list is advertised only as a
-  hint in the prompt; the model cannot emit real `tool_use` blocks. If your
-  agent relies on tool-call turns (memory lookup, web search, file I/O), they
-  won't happen — the model will just produce text. Bridging the caller's
-  tools into MCP tools exposed to the CLI is possible but not implemented
-  here.
-- **No real token-by-token streaming of text deltas.** Claude's
-  `--include-partial-messages` emits deltas, but for short responses it
-  collapses to one delta. Streaming keepalive and per-delta forwarding both
-  work; it's just less chunked than a raw API stream.
-- **Images and documents are dropped** from the user message content with
-  `<image omitted />` placeholders.
+- **Streaming is simulated.** We must buffer claude's full reply to parse
+  `<tool_call>` blocks reliably, so SSE events are emitted in one burst
+  after claude finishes. Keepalive pings (`: ping`) are sent every 5s
+  during the wait so clients don't hit first-byte timeouts. For long-form
+  prose responses this means Discord / the caller sees the whole message
+  at once rather than token-by-token.
+- **One tool call at a time, by instruction.** The output contract tells
+  claude to emit at most one `<tool_call>` per turn. The parser supports
+  multiple (Anthropic's parallel tool use), but we don't encourage it; the
+  caller will loop anyway.
+- **Tool result payloads are truncated to 8000 chars** when fed back to
+  claude as context, to keep prompts in check. Adjust with the
+  `MAX_TOOL_RESULT_CHARS` constant.
+- **Images and documents in user messages are dropped** with a note that
+  an attachment was present. The single-shot `claude -p` path does not
+  accept image inputs in this mode.
 - **Most model params are ignored** (`temperature`, `stop_sequences`,
-  `top_p`, etc.) — the CLI does not expose them.
-- **Every request spawns a fresh `claude` process** (~5-8s cold start). No
-  session pool yet.
+  `top_p`, `tool_choice`, etc.) — the CLI does not expose them.
+- **Every request spawns a fresh `claude` process** (~5-10s cold start).
+  No session pool yet. On large conversations (hundreds of messages,
+  ~600k prompt chars) a single turn takes 10-40s end to end.
 - **SSE-only streaming.** The proxy returns an SSE stream when
   `stream: true`, or a single JSON body otherwise. No WebSocket / gRPC /
   `stream_options` support.
+- **Robustness of structured output depends on claude following the
+  contract.** The prompt is explicit, but malformed `<tool_call>` blocks
+  fall through as text. If you see prose like
+  `I'll call the tool: <tool_call>…` instead of an actual tool_use block,
+  file an issue with the offending text and we'll tighten the parser or
+  the prompt.
 
 ## Install
 
@@ -186,7 +210,8 @@ MIT. See [`LICENSE`](./LICENSE).
 
 Issues and PRs welcome. Most obvious next steps:
 
-- MCP-based tool bridging so the caller's tools actually execute
-- Process pool (warm `claude` subprocesses) to kill cold start
-- Images/documents passthrough via temp files
+- Process pool (warm `claude` subprocesses) to kill cold start latency
+- True token-by-token streaming (requires a streaming tool_call parser)
+- Images/documents passthrough via `claude --input-format stream-json`
 - Disconnect-aware cleanup (kill child `claude` when the HTTP client gives up)
+- Tighter `<tool_call>` parser that recovers from minor formatting drift
