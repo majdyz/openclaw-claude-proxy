@@ -1,0 +1,12 @@
+{
+  "_comment": "Merge this object into your ~/.openclaw/openclaw.json. Only the models.providers.anthropic entries matter for the proxy; everything else is the snippet from a normal config for context.",
+
+  "models": {
+    "providers": {
+      "anthropic": {
+        "baseUrl": "http://127.0.0.1:18790",
+        "models": []
+      }
+    }
+  }
+}

@@ -1,0 +1,28 @@
+[Unit]
+Description=Claude Proxy (Anthropic API -> claude CLI)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Run as the same user that completed `claude login`, so the CLI can read
+# ~/.claude/.credentials.json for OAuth.
+User=YOUR_USER
+Environment=HOME=/home/YOUR_USER
+# PATH must include the directory containing the `claude` and `node` binaries.
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/node /opt/openclaw-claude-proxy/claude-proxy.js
+Restart=always
+RestartSec=5
+
+# Optional overrides:
+# Environment=CLAUDE_PROXY_PORT=18790
+# Environment=CLAUDE_BIN=claude
+# Environment=CLAUDE_PROXY_TIMEOUT_MS=300000
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=claude-proxy
+
+[Install]
+WantedBy=multi-user.target
