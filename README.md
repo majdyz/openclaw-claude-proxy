@@ -7,7 +7,7 @@ third-party agent framework) make Anthropic `/v1/messages` calls using your
 getting the *"Third-party apps now draw from your extra usage, not your plan
 limits"* rejection.
 
-It's ~350 lines of Node (built-ins only, no SDK). It does not touch
+It's ~450 lines of Node (built-ins only, no SDK). It does not touch
 `api.anthropic.com` itself: it shells out to the real `claude` CLI, which makes
 the upstream call as the official Claude Code client, and then marshals the
 response back into Anthropic-compatible SSE for the caller — including
@@ -82,13 +82,23 @@ third-party block. Inlining it as part of the user turn sidesteps that: the
 CLI's own Claude Code system prompt stays in the `system` field, and your
 agent's instructions live inside the user-message body.
 
-### Why prior tool_use / tool_result turns are rendered as 4-backtick fences
+### Why prior tool_use / tool_result turns are rendered as prose
 
-The caller's conversation history often contains `tool_use` and `tool_result`
-content blocks. They need to be represented as plain text for the CLI.
-4-backtick fences keep the boundaries robust even when tool results contain
-their own 3-backtick code blocks. The CLI is also explicitly instructed **not**
-to emit any such fences itself, to prevent it from imitating the pattern.
+The caller's conversation history often contains `tool_use` and
+`tool_result` content blocks. They need to be represented as plain text
+for the CLI. Earlier drafts wrapped them in structured fences
+(`<prior_tool_call>`, 4-backtick blocks) and claude immediately started
+mimicking those patterns in its own replies — hallucinating fake tool
+invocations. The current design renders them as descriptive prose
+instead:
+
+- prior `tool_use` → `(The assistant previously called the tool "X" with arguments: {...})`
+- prior `tool_result` → `(That tool call returned: ...)`
+
+This format is different enough from the `<tool_call>` block claude is
+asked to emit that it stays in "history" mode and won't copy it.
+`tool_result` bodies are also truncated to 8000 characters to keep
+prompts from blowing up over long sessions.
 
 ## Limitations
 
